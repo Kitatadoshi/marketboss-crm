@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "metric-snapshot.schema.json",
+  "title": "MetricSnapshot",
+  "type": "object",
+  "required": ["id", "dealId", "date", "impressions", "clicks", "orders", "buyouts", "revenue", "grossProfit"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "dealId": { "type": "string", "minLength": 1 },
+    "date": { "type": "string", "format": "date" },
+    "impressions": { "type": "integer", "minimum": 0 },
+    "clicks": { "type": "integer", "minimum": 0 },
+    "orders": { "type": "integer", "minimum": 0 },
+    "buyouts": { "type": "integer", "minimum": 0 },
+    "revenue": { "type": "number", "minimum": 0 },
+    "grossProfit": { "type": "number" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "lead.schema.json",
+  "title": "Lead",
+  "type": "object",
+  "required": ["id", "source", "name", "contact", "status", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "contact": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["new", "contacted", "qualified", "lost"] },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

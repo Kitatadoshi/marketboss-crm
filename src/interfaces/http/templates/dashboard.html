@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MarketBoss CRM Core</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .kanban-col{min-height:180px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px}
+    .kanban-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;margin-bottom:8px}
+  </style>
+</head>
+<body class="bg-light">
+<div class="container-fluid p-4">
+  <h1 class="mb-4">MarketBoss CRM Core</h1>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-2"><div class="card"><div class="card-body"><small>Leads</small><h3>{{ kpi.leads }}</h3></div></div></div>
+    <div class="col-md-2"><div class="card"><div class="card-body"><small>Deals</small><h3>{{ kpi.deals }}</h3></div></div></div>
+    <div class="col-md-2"><div class="card"><div class="card-body"><small>Snapshots</small><h3>{{ kpi.snapshots }}</h3></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body"><small>Revenue total</small><h3>{{ kpi.revenue_total }}</h3></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body"><small>Gross profit total</small><h3>{{ kpi.gross_profit_total }}</h3></div></div></div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Control Tower Alerts</div>
+    <div class="card-body">
+      {% if alerts %}
+        {% for a in alerts %}
+          <div class="alert alert-{{ 'danger' if a.level=='danger' else 'warning' }} py-2 my-2">{{ a.text }}</div>
+        {% endfor %}
+      {% else %}
+        <span class="text-success">Критичных алертов нет.</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Pipeline Kanban</div>
+    <div class="card-body">
+      <div class="row g-2">
+        {% for stage in pipeline_order %}
+          <div class="col">
+            <div class="kanban-col">
+              <div class="fw-bold mb-2 text-capitalize">{{ stage }} <span class="badge text-bg-secondary">{{ stage_counts.get(stage, 0) }}</span></div>
+              {% for d in stage_board.get(stage, []) %}
+                <div class="kanban-card">
+                  <div><code>{{ d.id }}</code></div>
+                  <div class="small">lead: <code>{{ d.lead_id }}</code></div>
+                  <div class="small">target: {{ d.target_revenue }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <div class="card mb-3"><div class="card-header">Новый Lead</div>
+        <div class="card-body">
+          <form method="post" action="/web/leads" class="row g-2">
+            <div class="col-md-4"><input name="source" class="form-control" placeholder="source" required></div>
+            <div class="col-md-4"><input name="name" class="form-control" placeholder="name" required></div>
+            <div class="col-md-4"><input name="contact" class="form-control" placeholder="contact" required></div>
+            <div class="col-md-6"><input type="number" step="0.01" name="budget_hint" class="form-control" placeholder="budget hint"></div>
+            <div class="col-md-6"><button class="btn btn-primary w-100">Создать Lead</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card"><div class="card-header">Leads</div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Budget</th></tr></thead>
+          <tbody>
+            {% for l in leads %}
+            <tr><td><code>{{ l.id }}</code></td><td>{{ l.name }}</td><td>{{ l.status }}</td><td>{{ l.budget_hint or '-' }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card mb-3"><div class="card-header">Новый Deal</div>
+        <div class="card-body">
+          <form method="post" action="/web/deals" class="row g-2">
+            <div class="col-md-6"><select name="lead_id" class="form-select" required>
+              <option value="">lead_id</option>{% for l in leads %}<option value="{{ l.id }}">{{ l.name }} ({{ l.id }})</option>{% endfor %}
+            </select></div>
+            <div class="col-md-6"><select name="platform" class="form-select" required><option value="wb">wb</option><option value="ozon">ozon</option><option value="both">both</option></select></div>
+            <div class="col-md-4"><input type="number" step="0.01" name="target_revenue" class="form-control" placeholder="target revenue" required></div>
+            <div class="col-md-4"><select name="risk_profile" class="form-select"><option>low</option><option selected>medium</option><option>high</option></select></div>
+            <div class="col-md-4"><input name="owner" class="form-control" value="marketboss" required></div>
+            <div class="col-12"><button class="btn btn-success w-100">Создать Deal</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card"><div class="card-header">Deals + Stage update</div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>ID</th><th>Lead</th><th>Stage</th><th>Move</th></tr></thead>
+          <tbody>
+            {% for d in deals %}
+            <tr>
+              <td><code>{{ d.id }}</code></td>
+              <td><code>{{ d.lead_id }}</code></td>
+              <td>{{ d.stage }}</td>
+              <td>
+                <form method="post" action="/web/deals/stage" class="d-flex gap-2">
+                  <input type="hidden" name="deal_id" value="{{ d.id }}" />
+                  <select name="stage" class="form-select form-select-sm">
+                    {% for st in pipeline_order %}
+                    <option value="{{ st }}" {% if st==d.stage.value %}selected{% endif %}>{{ st }}</option>
+                    {% endfor %}
+                    <option value="won" {% if d.stage.value=='won' %}selected{% endif %}>won</option>
+                    <option value="lost" {% if d.stage.value=='lost' %}selected{% endif %}>lost</option>
+                  </select>
+                  <button class="btn btn-sm btn-outline-primary">Save</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 mt-1">
+    <div class="col-lg-6">
+      <div class="card mb-3"><div class="card-header">Новый Metric Snapshot</div>
+        <div class="card-body">
+          <form method="post" action="/web/metrics" class="row g-2">
+            <div class="col-md-12"><select name="deal_id" class="form-select" required><option value="">deal_id</option>{% for d in deals %}<option value="{{ d.id }}">{{ d.id }}</option>{% endfor %}</select></div>
+            <div class="col-md-6"><input type="date" name="snapshot_date" class="form-control" required></div>
+            <div class="col-md-6"><input type="number" name="impressions" class="form-control" placeholder="impressions" required></div>
+            <div class="col-md-3"><input type="number" name="clicks" class="form-control" placeholder="clicks" required></div>
+            <div class="col-md-3"><input type="number" name="orders" class="form-control" placeholder="orders" required></div>
+            <div class="col-md-3"><input type="number" name="buyouts" class="form-control" placeholder="buyouts" required></div>
+            <div class="col-md-3"><input type="number" step="0.01" name="revenue" class="form-control" placeholder="revenue" required></div>
+            <div class="col-md-6"><input type="number" step="0.01" name="gross_profit" class="form-control" placeholder="gross profit" required></div>
+            <div class="col-md-6"><button class="btn btn-primary w-100">Добавить Snapshot</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card"><div class="card-header">Metrics</div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>Date</th><th>Deal</th><th>CTR</th><th>CR</th><th>Revenue</th><th>Gross</th></tr></thead>
+          <tbody>
+            {% for m in metrics %}
+            <tr><td>{{ m.snapshot_date }}</td><td><code>{{ m.deal_id }}</code></td><td>{{ '%.2f'|format(m.ctr*100) }}%</td><td>{{ '%.2f'|format(m.cr_order*100) }}%</td><td>{{ m.revenue }}</td><td>{{ m.gross_profit }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card mb-3"><div class="card-header">Новый Decision Log</div>
+        <div class="card-body">
+          <form method="post" action="/web/decisions" class="row g-2">
+            <div class="col-md-12"><select name="deal_id" class="form-select" required><option value="">deal_id</option>{% for d in deals %}<option value="{{ d.id }}">{{ d.id }}</option>{% endfor %}</select></div>
+            <div class="col-md-6"><input name="decision_type" class="form-control" placeholder="decision type" required></div>
+            <div class="col-md-6"><input name="owner" class="form-control" value="marketboss" required></div>
+            <div class="col-md-12"><textarea name="decision_text" class="form-control" rows="2" placeholder="decision" required></textarea></div>
+            <div class="col-md-12"><textarea name="expected_effect" class="form-control" rows="2" placeholder="expected effect" required></textarea></div>
+            <div class="col-md-12"><button class="btn btn-dark w-100">Добавить Decision</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card mb-3"><div class="card-header">Decision Log</div>
+        <div class="table-responsive"><table class="table table-sm mb-0">
+          <thead><tr><th>Time</th><th>Deal</th><th>Type</th><th>Decision</th></tr></thead>
+          <tbody>
+            {% for d in decisions %}
+            <tr><td>{{ d.created_at }}</td><td><code>{{ d.deal_id }}</code></td><td>{{ d.decision_type }}</td><td>{{ d.decision_text }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+
+      <div class="card"><div class="card-header">Event Log (поток действий)</div>
+        <div class="table-responsive" style="max-height:280px; overflow:auto;"><table class="table table-sm mb-0">
+          <thead><tr><th>Time</th><th>Event</th><th>Aggregate</th><th>Payload</th></tr></thead>
+          <tbody>
+            {% for e in events %}
+            <tr>
+              <td>{{ e.created_at }}</td>
+              <td><code>{{ e.event_name }}</code></td>
+              <td>{{ e.aggregate_type }}:<code>{{ e.aggregate_id }}</code></td>
+              <td><small>{{ e.payload_json }}</small></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

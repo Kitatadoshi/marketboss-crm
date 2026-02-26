@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "deal.schema.json",
+  "title": "Deal",
+  "type": "object",
+  "required": ["id", "leadId", "stage", "budget", "riskProfile", "platform", "targetRevenue", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "leadId": { "type": "string", "minLength": 1 },
+    "stage": { "type": "string", "enum": ["diagnostic", "niche", "economics", "launch", "scale", "won", "lost"] },
+    "budget": { "type": "number", "minimum": 0 },
+    "riskProfile": { "type": "string", "enum": ["low", "medium", "high"] },
+    "platform": { "type": "string", "enum": ["wb", "ozon", "both"] },
+    "targetRevenue": { "type": "number", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
