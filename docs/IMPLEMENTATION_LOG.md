@@ -17,3 +17,24 @@
 1. `docs/IMPLEMENTATION_LOG.md` (this file, step-by-step record)
 2. `docs/CHANGELOG_SPRINT1.md` (final summary)
 3. Updated code + tests + migration notes
+
+## 2026-02-26 — Step 1 done: Event Contracts v1 in code
+
+### Implemented
+- Reworked `src/shared/events.py`:
+  - `EventEnvelope`
+  - `EventMeta`
+  - `ActorType`, `RiskLevel`
+- Upgraded `event_logs` schema in `src/infrastructure/persistence.py`:
+  - `event_version`, `producer`, `correlation_id`, `causation_id`, `actor_type`, `actor_id`, `risk_level`
+  - Added backward-safe column migration via `PRAGMA table_info + ALTER TABLE`.
+- Updated event emission in `src/application/services.py`:
+  - Single `_log_event(...)` with envelope + validation
+  - `INSERT OR IGNORE` by event id (idempotency base)
+  - Added producer/meta/risk on all business events
+- Extended event API payload (`list_event_logs`) with new envelope fields.
+
+### Notes
+- Existing API/UI kept backward compatible.
+- Current idempotency behavior: duplicate `event_id` ignored.
+

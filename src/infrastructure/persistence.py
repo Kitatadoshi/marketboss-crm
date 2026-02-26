@@ -14,6 +14,13 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(cur: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
+    cols = cur.execute(f"PRAGMA table_info({table})").fetchall()
+    existing = {r[1] for r in cols}
+    if column not in existing:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db() -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -83,9 +90,25 @@ def init_db() -> None:
             aggregate_type TEXT NOT NULL,
             aggregate_id TEXT NOT NULL,
             payload_json TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            event_version INTEGER NOT NULL DEFAULT 1,
+            producer TEXT NOT NULL DEFAULT 'system',
+            correlation_id TEXT,
+            causation_id TEXT,
+            actor_type TEXT NOT NULL DEFAULT 'system',
+            actor_id TEXT NOT NULL DEFAULT 'system',
+            risk_level TEXT NOT NULL DEFAULT 'low'
         )
         '''
     )
+
+    _ensure_column(cur, 'event_logs', 'event_version', 'event_version INTEGER NOT NULL DEFAULT 1')
+    _ensure_column(cur, 'event_logs', 'producer', "producer TEXT NOT NULL DEFAULT 'system'")
+    _ensure_column(cur, 'event_logs', 'correlation_id', 'correlation_id TEXT')
+    _ensure_column(cur, 'event_logs', 'causation_id', 'causation_id TEXT')
+    _ensure_column(cur, 'event_logs', 'actor_type', "actor_type TEXT NOT NULL DEFAULT 'system'")
+    _ensure_column(cur, 'event_logs', 'actor_id', "actor_id TEXT NOT NULL DEFAULT 'system'")
+    _ensure_column(cur, 'event_logs', 'risk_level', "risk_level TEXT NOT NULL DEFAULT 'low'")
+
     conn.commit()
     conn.close()

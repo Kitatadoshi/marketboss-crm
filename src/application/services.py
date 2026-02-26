@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from src.domain.deal_strategy.entities import Deal
 from src.domain.executive_control.entities import DecisionLog
 from src.domain.lead_intake.entities import Lead
 from src.infrastructure.persistence import get_conn
+from src.shared.events import ActorType, EventEnvelope, EventMeta, RiskLevel
 from src.shared.types import DealStage, LeadStatus, Platform
 
 
@@ -17,21 +19,54 @@ def _new_id(prefix: str) -> str:
 
 
 def _log_event(
-    conn,
+    conn: sqlite3.Connection,
     event_name: str,
     aggregate_type: str,
     aggregate_id: str,
     payload: dict[str, object],
+    *,
+    producer: str,
+    actor_type: ActorType = ActorType.SYSTEM,
+    actor_id: str = 'system',
+    risk_level: RiskLevel = RiskLevel.LOW,
+    correlation_id: str | None = None,
+    causation_id: str | None = None,
+    event_id: str | None = None,
 ) -> None:
+    event = EventEnvelope(
+        event_id=event_id or f"evt_{uuid4().hex[:12]}",
+        event_name=event_name,
+        event_version=1,
+        producer=producer,
+        aggregate_type=aggregate_type,
+        aggregate_id=aggregate_id,
+        correlation_id=correlation_id,
+        causation_id=causation_id,
+        payload=payload,
+        meta=EventMeta(actor_type=actor_type, actor_id=actor_id, risk_level=risk_level),
+    )
+
     conn.execute(
-        "INSERT INTO event_logs (id,event_name,aggregate_type,aggregate_id,payload_json,created_at) VALUES (?,?,?,?,?,?)",
+        """
+        INSERT OR IGNORE INTO event_logs (
+            id,event_name,aggregate_type,aggregate_id,payload_json,created_at,
+            event_version,producer,correlation_id,causation_id,actor_type,actor_id,risk_level
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
         (
-            _new_id('evt'),
-            event_name,
-            aggregate_type,
-            aggregate_id,
-            json.dumps(payload, ensure_ascii=False),
-            datetime.now(UTC).isoformat(),
+            event.event_id,
+            event.event_name,
+            event.aggregate_type,
+            event.aggregate_id,
+            json.dumps(event.payload, ensure_ascii=False),
+            event.occurred_at.isoformat(),
+            event.event_version,
+            event.producer,
+            event.correlation_id,
+            event.causation_id,
+            event.meta.actor_type.value,
+            event.meta.actor_id,
+            event.meta.risk_level.value,
         ),
     )
 
@@ -65,6 +100,9 @@ def create_lead(source: str, name: str, contact: str, budget_hint: float | None)
         'lead',
         lead.id,
         {'source': lead.source, 'name': lead.name, 'status': lead.status.value},
+        producer='lead_intake',
+        actor_type=ActorType.AGENT,
+        actor_id='marketboss',
     )
     conn.commit()
     conn.close()
@@ -126,6 +164,9 @@ def create_deal(
         'deal',
         deal.id,
         {'stage': deal.stage.value, 'platform': deal.platform.value, 'owner': deal.owner},
+        producer='deal_strategy',
+        actor_type=ActorType.AGENT,
+        actor_id=deal.owner,
     )
     conn.commit()
     conn.close()
@@ -146,6 +187,10 @@ def update_deal_stage(deal_id: str, stage: DealStage) -> Deal | None:
         'deal',
         deal_id,
         {'from': row['stage'], 'to': stage.value},
+        producer='deal_strategy',
+        actor_type=ActorType.AGENT,
+        actor_id='marketboss',
+        risk_level=RiskLevel.MEDIUM,
     )
     conn.commit()
     updated = conn.execute('SELECT * FROM deals WHERE id = ?', (deal_id,)).fetchone()
@@ -212,6 +257,9 @@ def create_metric_snapshot(snapshot: MetricSnapshot) -> MetricSnapshot:
             'ctr': snapshot.ctr,
             'cr_order': snapshot.cr_order,
         },
+        producer='analytics_bi',
+        actor_type=ActorType.AGENT,
+        actor_id='marketboss',
     )
     conn.commit()
     conn.close()
@@ -273,6 +321,10 @@ def create_decision_log(
         'decision_log',
         item.id,
         {'deal_id': item.deal_id, 'decision_type': item.decision_type, 'owner': item.owner},
+        producer='executive_control',
+        actor_type=ActorType.AGENT,
+        actor_id=item.owner,
+        risk_level=RiskLevel.MEDIUM,
     )
     conn.commit()
     conn.close()
@@ -308,8 +360,15 @@ def list_event_logs(limit: int = 100) -> list[dict[str, object]]:
         {
             'id': r['id'],
             'event_name': r['event_name'],
+            'event_version': r['event_version'],
+            'producer': r['producer'],
             'aggregate_type': r['aggregate_type'],
             'aggregate_id': r['aggregate_id'],
+            'correlation_id': r['correlation_id'],
+            'causation_id': r['causation_id'],
+            'actor_type': r['actor_type'],
+            'actor_id': r['actor_id'],
+            'risk_level': r['risk_level'],
             'payload_json': r['payload_json'],
             'created_at': r['created_at'],
         }
