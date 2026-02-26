@@ -84,6 +84,37 @@ def init_db() -> None:
     )
     cur.execute(
         '''
+        CREATE TABLE IF NOT EXISTS recommendations (
+            id TEXT PRIMARY KEY,
+            deal_id TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            why_text TEXT NOT NULL,
+            expected_effect TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            approved_at TEXT,
+            rejected_at TEXT,
+            FOREIGN KEY(deal_id) REFERENCES deals(id)
+        )
+        '''
+    )
+    cur.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS agent_action_logs (
+            id TEXT PRIMARY KEY,
+            action_name TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            approved INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            details_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        '''
+    )
+    cur.execute(
+        '''
         CREATE TABLE IF NOT EXISTS event_logs (
             id TEXT PRIMARY KEY,
             event_name TEXT NOT NULL,

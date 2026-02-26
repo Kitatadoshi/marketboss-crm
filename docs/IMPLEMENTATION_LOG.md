@@ -83,3 +83,48 @@
 - Deal aging >=3d => warning
 - Deal aging >=7d => danger
 
+
+## 2026-02-26 — Step 4 done: Agent Action API (guarded) + Recommendations v1
+
+### Implemented (Agent Action API)
+- Added guarded action flow in `src/application/services.py`:
+  - `guarded_move_deal_stage(actor_id, deal_id, stage, approved)`
+  - risk policy:
+    - low: allowed
+    - medium/high: requires `approved=true`
+- Added `agent_action_logs` table in DB (`src/infrastructure/persistence.py`) for audit of agent operations:
+  - action, actor, risk, approved, status, details_json, timestamp
+- Added endpoint:
+  - `POST /api/agent/actions/move-deal-stage`
+
+### Implemented (Recommendations v1)
+- Added `Recommendation` entity (`src/domain/executive_control/entities.py`).
+- Added `recommendations` table with status lifecycle:
+  - `proposed -> approved/rejected`
+- Added services:
+  - `create_recommendation`
+  - `list_recommendations`
+  - `approve_recommendation`
+  - `reject_recommendation`
+- Added API:
+  - `GET /api/recommendations`
+  - `POST /api/recommendations`
+  - `POST /api/recommendations/{id}/approve`
+  - `POST /api/recommendations/{id}/reject`
+- Added dashboard block for recommendations with Approve/Reject buttons and SSE live updates.
+
+### Why
+- Нужен безопасный action-layer для агентных операций.
+- Нужен минимальный советующий контур (advisor loop) с подтверждением человеком.
+
+### Impact
+- Система стала closer к AI-native control tower:
+  - агенты могут инициировать действия через guardrail policy,
+  - рекомендации имеют управляемый lifecycle и трассировку через события.
+
+### Verify (quick)
+1. `POST /api/recommendations` -> создать recommendation.
+2. `POST /api/recommendations/{id}/approve` -> статус обновился.
+3. `POST /api/agent/actions/move-deal-stage` без approved для medium-risk stage -> blocked.
+4. Повтор с `approved=true` -> executed + stage changed.
+

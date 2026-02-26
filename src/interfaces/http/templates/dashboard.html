@@ -184,6 +184,28 @@
         </table></div>
       </div>
 
+      <div class="card mb-3"><div class="card-header">Recommendations</div>
+        <div class="table-responsive" style="max-height:220px; overflow:auto;"><table class="table table-sm mb-0">
+          <thead><tr><th>Deal</th><th>Action</th><th>Confidence</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="recommendations-body">
+            {% for r in recommendations %}
+            <tr>
+              <td><code>{{ r.deal_id }}</code></td>
+              <td>{{ r.action_type }}</td>
+              <td>{{ '%.0f'|format(r.confidence*100) }}%</td>
+              <td>{{ r.status }}</td>
+              <td>
+                {% if r.status == 'proposed' %}
+                <button class="btn btn-sm btn-outline-success" onclick="approveRecommendation('{{ r.id }}')">Approve</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="rejectRecommendation('{{ r.id }}')">Reject</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+
       <div class="card"><div class="card-header">Event Log (поток действий)</div>
         <div class="table-responsive" style="max-height:280px; overflow:auto;"><table class="table table-sm mb-0">
           <thead><tr><th>Time</th><th>Event</th><th>Aggregate</th><th>Payload</th></tr></thead>
@@ -205,6 +227,7 @@
 <script>
   const alertsContainer = document.getElementById('alerts-container');
   const eventLogBody = document.getElementById('event-log-body');
+  const recommendationsBody = document.getElementById('recommendations-body');
 
   function renderAlerts(alerts) {
     if (!alertsContainer) return;
@@ -236,6 +259,24 @@
     `).join('');
   }
 
+  function renderRecommendations(items) {
+    if (!recommendationsBody) return;
+    recommendationsBody.innerHTML = (items || []).map((r) => {
+      const actions = r.status === 'proposed'
+        ? `<button class="btn btn-sm btn-outline-success" onclick="approveRecommendation('${r.id}')">Approve</button>
+           <button class="btn btn-sm btn-outline-danger" onclick="rejectRecommendation('${r.id}')">Reject</button>`
+        : '';
+      const confidence = Math.round((r.confidence || 0) * 100);
+      return `<tr>
+        <td><code>${r.deal_id}</code></td>
+        <td>${r.action_type}</td>
+        <td>${confidence}%</td>
+        <td>${r.status}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  }
+
   async function ackAlert(alertId) {
     await fetch(`/api/alerts/${alertId}/ack`, { method: 'POST' });
   }
@@ -244,12 +285,21 @@
     await fetch(`/api/alerts/${alertId}/resolve`, { method: 'POST' });
   }
 
+  async function approveRecommendation(recoId) {
+    await fetch(`/api/recommendations/${recoId}/approve`, { method: 'POST' });
+  }
+
+  async function rejectRecommendation(recoId) {
+    await fetch(`/api/recommendations/${recoId}/reject`, { method: 'POST' });
+  }
+
   if (window.EventSource) {
     const stream = new EventSource('/api/events/stream');
     stream.addEventListener('snapshot', (evt) => {
       const data = JSON.parse(evt.data);
       renderAlerts(data.alerts || []);
       renderEvents(data.events || []);
+      renderRecommendations(data.recommendations || []);
     });
   }
 </script>

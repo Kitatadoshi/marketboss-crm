@@ -46,8 +46,18 @@ PYTHONPATH=. python3 -m src.interfaces.cli list deals
 - `GET /health`
 - `GET/POST /api/leads`
 - `GET/POST /api/deals`
+- `POST /api/deals/{deal_id}/stage/{stage}`
+- `POST /api/agent/actions/move-deal-stage` (guarded)
 - `GET/POST /api/metrics`
 - `GET/POST /api/decisions`
+- `GET/POST /api/recommendations`
+- `POST /api/recommendations/{id}/approve`
+- `POST /api/recommendations/{id}/reject`
+- `GET /api/events`
+- `GET /api/events/stream` (SSE)
+- `GET /api/alerts`
+- `POST /api/alerts/{id}/ack`
+- `POST /api/alerts/{id}/resolve`
 
 ## Контексты
 См. `docs/CONTEXT_MAP.md` (RAG-driven модель контекстов).

@@ -26,6 +26,8 @@ def cmd_list(entity: str) -> None:
         _print([x.model_dump(mode='json') for x in services.list_decision_logs()])
     elif entity == 'events':
         _print(services.list_event_logs(200))
+    elif entity == 'recommendations':
+        _print([x.model_dump(mode='json') for x in services.list_recommendations()])
 
 
 def main() -> None:
@@ -34,7 +36,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest='cmd', required=True)
 
     list_p = sub.add_parser('list')
-    list_p.add_argument('entity', choices=['leads', 'deals', 'metrics', 'decisions', 'events'])
+    list_p.add_argument('entity', choices=['leads', 'deals', 'metrics', 'decisions', 'events', 'recommendations'])
 
     add_lead = sub.add_parser('add-lead')
     add_lead.add_argument('--source', required=True)

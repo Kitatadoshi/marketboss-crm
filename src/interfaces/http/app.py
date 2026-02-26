@@ -58,6 +58,21 @@ class DecisionIn(BaseModel):
     expected_effect: str
 
 
+class RecommendationIn(BaseModel):
+    deal_id: str
+    action_type: str
+    why_text: str
+    expected_effect: str
+    confidence: float = Field(ge=0, le=1)
+
+
+class GuardedMoveStageIn(BaseModel):
+    actor_id: str
+    deal_id: str
+    stage: DealStage
+    approved: bool = False
+
+
 class MetricIn(BaseModel):
     deal_id: str
     snapshot_date: date
@@ -82,9 +97,11 @@ def health() -> dict[str, str]:
 def _realtime_snapshot() -> dict[str, object]:
     events = services.list_event_logs(20)
     alerts = services.refresh_alerts()
+    recommendations = [item.model_dump(mode='json') for item in services.list_recommendations()[:20]]
     return {
         'events': events,
         'alerts': alerts,
+        'recommendations': recommendations,
         'event_count': len(events),
     }
 
@@ -95,6 +112,7 @@ def dashboard(request: Request) -> HTMLResponse:
     deals = services.list_deals()
     metrics = services.list_metric_snapshots()
     decisions = services.list_decision_logs()
+    recommendations = services.list_recommendations()
     events = services.list_event_logs(60)
 
     revenue_total = round(sum(m.revenue for m in metrics), 2)
@@ -117,6 +135,7 @@ def dashboard(request: Request) -> HTMLResponse:
             'deals': deals,
             'metrics': metrics[:20],
             'decisions': decisions[:20],
+            'recommendations': recommendations[:20],
             'events': events,
             'alerts': alerts,
             'stage_counts': stage_counts,
@@ -261,6 +280,16 @@ def update_deal_stage_api(deal_id: str, stage: str) -> dict[str, object]:
     return {'updated': bool(updated)}
 
 
+@app.post('/api/agent/actions/move-deal-stage')
+def guarded_move_stage_api(payload: GuardedMoveStageIn) -> dict[str, object]:
+    return services.guarded_move_deal_stage(
+        actor_id=payload.actor_id,
+        deal_id=payload.deal_id,
+        stage=payload.stage,
+        approved=payload.approved,
+    )
+
+
 @app.get('/api/metrics')
 def list_metrics_api() -> list[dict[str, object]]:
     return [item.model_dump(mode='json') for item in services.list_metric_snapshots()]
@@ -288,6 +317,33 @@ def create_decision_api(payload: DecisionIn) -> dict[str, object]:
         payload.expected_effect,
     )
     return item.model_dump(mode='json')
+
+
+@app.get('/api/recommendations')
+def list_recommendations_api() -> list[dict[str, object]]:
+    return [item.model_dump(mode='json') for item in services.list_recommendations()]
+
+
+@app.post('/api/recommendations')
+def create_recommendation_api(payload: RecommendationIn) -> dict[str, object]:
+    item = services.create_recommendation(
+        payload.deal_id,
+        payload.action_type,
+        payload.why_text,
+        payload.expected_effect,
+        payload.confidence,
+    )
+    return item.model_dump(mode='json')
+
+
+@app.post('/api/recommendations/{recommendation_id}/approve')
+def approve_recommendation_api(recommendation_id: str) -> dict[str, object]:
+    return {'updated': services.approve_recommendation(recommendation_id)}
+
+
+@app.post('/api/recommendations/{recommendation_id}/reject')
+def reject_recommendation_api(recommendation_id: str) -> dict[str, object]:
+    return {'updated': services.reject_recommendation(recommendation_id)}
 
 
 @app.get('/api/events')

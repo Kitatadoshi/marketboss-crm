@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from src.domain.analytics_bi.entities import MetricSnapshot
 from src.domain.deal_strategy.entities import Deal
-from src.domain.executive_control.entities import DecisionLog
+from src.domain.executive_control.entities import DecisionLog, Recommendation
 from src.domain.lead_intake.entities import Lead
 from src.infrastructure.persistence import get_conn
 from src.shared.events import ActorType, EventEnvelope, EventMeta, RiskLevel
@@ -566,3 +566,199 @@ def resolve_alert(alert_id: str) -> bool:
     changed = cur.rowcount > 0
     conn.close()
     return changed
+
+
+def _log_agent_action(
+    conn: sqlite3.Connection,
+    *,
+    action_name: str,
+    actor_id: str,
+    risk_level: RiskLevel,
+    approved: bool,
+    status: str,
+    details: dict[str, object],
+) -> None:
+    conn.execute(
+        '''
+        INSERT INTO agent_action_logs (id, action_name, actor_id, risk_level, approved, status, details_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        (
+            _new_id('act'),
+            action_name,
+            actor_id,
+            risk_level.value,
+            1 if approved else 0,
+            status,
+            json.dumps(details, ensure_ascii=False),
+            datetime.now(UTC).isoformat(),
+        ),
+    )
+
+
+def _guard_action(risk_level: RiskLevel, approved: bool) -> tuple[bool, str]:
+    if risk_level == RiskLevel.HIGH and not approved:
+        return False, 'high risk action requires approval'
+    if risk_level == RiskLevel.MEDIUM and not approved:
+        return False, 'medium risk action requires approval'
+    return True, 'ok'
+
+
+def create_recommendation(
+    deal_id: str,
+    action_type: str,
+    why_text: str,
+    expected_effect: str,
+    confidence: float,
+) -> Recommendation:
+    item = Recommendation(
+        id=_new_id('reco'),
+        deal_id=deal_id,
+        action_type=action_type,
+        why_text=why_text,
+        expected_effect=expected_effect,
+        confidence=confidence,
+        status='proposed',
+        created_at=datetime.now(UTC),
+    )
+    conn = get_conn()
+    conn.execute(
+        '''
+        INSERT INTO recommendations (
+          id, deal_id, action_type, why_text, expected_effect, confidence, status, created_at, approved_at, rejected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+        ''',
+        (
+            item.id,
+            item.deal_id,
+            item.action_type,
+            item.why_text,
+            item.expected_effect,
+            item.confidence,
+            item.status,
+            item.created_at.isoformat(),
+        ),
+    )
+    _log_event(
+        conn,
+        'recommendation.created',
+        'recommendation',
+        item.id,
+        {'deal_id': item.deal_id, 'action_type': item.action_type, 'confidence': item.confidence},
+        producer='executive_control',
+        actor_type=ActorType.AGENT,
+        actor_id='advisor-agent',
+        risk_level=RiskLevel.LOW,
+    )
+    conn.commit()
+    conn.close()
+    return item
+
+
+def list_recommendations() -> list[Recommendation]:
+    conn = get_conn()
+    rows = conn.execute('SELECT * FROM recommendations ORDER BY created_at DESC').fetchall()
+    conn.close()
+    return [
+        Recommendation(
+            id=r['id'],
+            deal_id=r['deal_id'],
+            action_type=r['action_type'],
+            why_text=r['why_text'],
+            expected_effect=r['expected_effect'],
+            confidence=r['confidence'],
+            status=r['status'],
+            created_at=datetime.fromisoformat(r['created_at']),
+            approved_at=datetime.fromisoformat(r['approved_at']) if r['approved_at'] else None,
+            rejected_at=datetime.fromisoformat(r['rejected_at']) if r['rejected_at'] else None,
+        )
+        for r in rows
+    ]
+
+
+def approve_recommendation(recommendation_id: str) -> bool:
+    conn = get_conn()
+    now = datetime.now(UTC).isoformat()
+    cur = conn.execute(
+        "UPDATE recommendations SET status='approved', approved_at=?, rejected_at=NULL WHERE id=?",
+        (now, recommendation_id),
+    )
+    if cur.rowcount > 0:
+        _log_event(
+            conn,
+            'recommendation.approved',
+            'recommendation',
+            recommendation_id,
+            {'status': 'approved'},
+            producer='executive_control',
+            actor_type=ActorType.HUMAN,
+            actor_id='owner',
+            risk_level=RiskLevel.MEDIUM,
+        )
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def reject_recommendation(recommendation_id: str) -> bool:
+    conn = get_conn()
+    now = datetime.now(UTC).isoformat()
+    cur = conn.execute(
+        "UPDATE recommendations SET status='rejected', rejected_at=? WHERE id=?",
+        (now, recommendation_id),
+    )
+    if cur.rowcount > 0:
+        _log_event(
+            conn,
+            'recommendation.rejected',
+            'recommendation',
+            recommendation_id,
+            {'status': 'rejected'},
+            producer='executive_control',
+            actor_type=ActorType.HUMAN,
+            actor_id='owner',
+            risk_level=RiskLevel.MEDIUM,
+        )
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def guarded_move_deal_stage(
+    *,
+    actor_id: str,
+    deal_id: str,
+    stage: DealStage,
+    approved: bool,
+) -> dict[str, object]:
+    risk = RiskLevel.MEDIUM if stage in {DealStage.WON, DealStage.LOST, DealStage.SCALE} else RiskLevel.LOW
+    ok, reason = _guard_action(risk, approved)
+    conn = get_conn()
+    if not ok:
+        _log_agent_action(
+            conn,
+            action_name='move_deal_stage',
+            actor_id=actor_id,
+            risk_level=risk,
+            approved=approved,
+            status='blocked',
+            details={'deal_id': deal_id, 'stage': stage.value, 'reason': reason},
+        )
+        conn.commit()
+        conn.close()
+        return {'ok': False, 'reason': reason}
+
+    _log_agent_action(
+        conn,
+        action_name='move_deal_stage',
+        actor_id=actor_id,
+        risk_level=risk,
+        approved=approved,
+        status='executed',
+        details={'deal_id': deal_id, 'stage': stage.value},
+    )
+    conn.commit()
+    conn.close()
+
+    updated = update_deal_stage(deal_id, stage)
+    return {'ok': bool(updated), 'reason': 'updated' if updated else 'deal not found'}
