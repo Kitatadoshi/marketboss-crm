@@ -101,6 +101,22 @@ def init_db() -> None:
         )
         '''
     )
+    cur.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS alerts (
+            id TEXT PRIMARY KEY,
+            alert_key TEXT NOT NULL UNIQUE,
+            level TEXT NOT NULL,
+            text TEXT NOT NULL,
+            status TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            resolved_at TEXT
+        )
+        '''
+    )
 
     _ensure_column(cur, 'event_logs', 'event_version', 'event_version INTEGER NOT NULL DEFAULT 1')
     _ensure_column(cur, 'event_logs', 'producer', "producer TEXT NOT NULL DEFAULT 'system'")

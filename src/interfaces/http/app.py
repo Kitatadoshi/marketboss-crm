@@ -79,24 +79,12 @@ def health() -> dict[str, str]:
     return {'status': 'ok'}
 
 
-def _build_alerts(metrics: list[MetricSnapshot]) -> list[dict[str, str]]:
-    alerts: list[dict[str, str]] = []
-    for m in metrics[:20]:
-        if m.ctr < 0.02:
-            alerts.append({'level': 'warning', 'text': f'Низкий CTR ({m.ctr*100:.2f}%) по deal {m.deal_id}'})
-        if m.cr_order < 0.05:
-            alerts.append({'level': 'warning', 'text': f'Низкий CR в заказ ({m.cr_order*100:.2f}%) по deal {m.deal_id}'})
-        if m.revenue > 0 and m.gross_profit / m.revenue < 0.1:
-            alerts.append({'level': 'danger', 'text': f'Низкая маржа (<10%) по deal {m.deal_id}'})
-    return alerts[:12]
-
-
 def _realtime_snapshot() -> dict[str, object]:
     events = services.list_event_logs(20)
-    metrics = services.list_metric_snapshots()
+    alerts = services.refresh_alerts()
     return {
         'events': events,
-        'alerts': _build_alerts(metrics),
+        'alerts': alerts,
         'event_count': len(events),
     }
 
@@ -119,7 +107,7 @@ def dashboard(request: Request) -> HTMLResponse:
         if d.stage.value in stage_board:
             stage_board[d.stage.value].append(d)
 
-    alerts = _build_alerts(metrics)
+    alerts = services.refresh_alerts()
 
     return templates.TemplateResponse(
         request,
@@ -308,8 +296,18 @@ def list_events_api() -> list[dict[str, object]]:
 
 
 @app.get('/api/alerts')
-def list_alerts_api() -> list[dict[str, str]]:
-    return _build_alerts(services.list_metric_snapshots())
+def list_alerts_api() -> list[dict[str, object]]:
+    return services.refresh_alerts()
+
+
+@app.post('/api/alerts/{alert_id}/ack')
+def ack_alert_api(alert_id: str) -> dict[str, object]:
+    return {'updated': services.ack_alert(alert_id)}
+
+
+@app.post('/api/alerts/{alert_id}/resolve')
+def resolve_alert_api(alert_id: str) -> dict[str, object]:
+    return {'updated': services.resolve_alert(alert_id)}
 
 
 @app.get('/api/realtime')

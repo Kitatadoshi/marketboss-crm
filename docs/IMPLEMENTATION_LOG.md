@@ -56,3 +56,30 @@
 - Transport: SSE (lightweight and enough for v1 realtime).
 - Poll interval in stream loop: 2 sec.
 
+
+## 2026-02-26 — Step 3 done: Alert Engine v1 (stateful)
+
+### Implemented
+- Added `alerts` table in DB (`src/infrastructure/persistence.py`):
+  - `alert_key` unique for dedup
+  - status lifecycle: `open|ack|resolved`
+  - timestamps: first_seen/last_seen/resolved_at
+- Implemented stateful alert engine in `src/application/services.py`:
+  - `refresh_alerts()` recalculates active signals
+  - dedup by stable `alert_key`
+  - stale alert auto-resolve
+  - aging alerts by deal age (>=3 warning, >=7 danger)
+  - endpoints helpers: `ack_alert`, `resolve_alert`, `list_alerts`
+- Integrated alerts into API/UI (`src/interfaces/http/app.py`, `dashboard.html`):
+  - `GET /api/alerts`
+  - `POST /api/alerts/{id}/ack`
+  - `POST /api/alerts/{id}/resolve`
+  - dashboard alert buttons Ack/Resolve
+
+### Alert rules v1
+- CTR < 2% => warning
+- CR(order) < 5% => warning
+- Margin < 10% => danger
+- Deal aging >=3d => warning
+- Deal aging >=7d => danger
+

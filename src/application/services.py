@@ -374,3 +374,195 @@ def list_event_logs(limit: int = 100) -> list[dict[str, object]]:
         }
         for r in rows
     ]
+
+
+def _upsert_alert(
+    conn: sqlite3.Connection,
+    *,
+    alert_key: str,
+    level: str,
+    text: str,
+    source_type: str,
+    source_id: str,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    row = conn.execute('SELECT id, status FROM alerts WHERE alert_key = ?', (alert_key,)).fetchone()
+    if row is None:
+        conn.execute(
+            '''
+            INSERT INTO alerts (
+              id, alert_key, level, text, status, source_type, source_id, first_seen_at, last_seen_at, resolved_at
+            ) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, NULL)
+            ''',
+            (_new_id('alert'), alert_key, level, text, source_type, source_id, now, now),
+        )
+        return
+
+    if row['status'] == 'resolved':
+        conn.execute(
+            '''
+            UPDATE alerts SET status='open', level=?, text=?, source_type=?, source_id=?, last_seen_at=?, resolved_at=NULL
+            WHERE alert_key = ?
+            ''',
+            (level, text, source_type, source_id, now, alert_key),
+        )
+    else:
+        conn.execute(
+            '''
+            UPDATE alerts SET level=?, text=?, source_type=?, source_id=?, last_seen_at=?
+            WHERE alert_key = ?
+            ''',
+            (level, text, source_type, source_id, now, alert_key),
+        )
+
+
+def _resolve_stale_alerts(conn: sqlite3.Connection, active_keys: set[str]) -> None:
+    rows = conn.execute("SELECT alert_key FROM alerts WHERE status = 'open'").fetchall()
+    now = datetime.now(UTC).isoformat()
+    for row in rows:
+        key = str(row['alert_key'])
+        if key not in active_keys:
+            conn.execute(
+                "UPDATE alerts SET status='resolved', resolved_at=?, last_seen_at=? WHERE alert_key=?",
+                (now, now, key),
+            )
+
+
+def refresh_alerts() -> list[dict[str, object]]:
+    conn = get_conn()
+    metrics = list_metric_snapshots()
+    deals = list_deals()
+
+    active_keys: set[str] = set()
+
+    for m in metrics[:50]:
+        if m.ctr < 0.02:
+            key = f'ctr_low:{m.deal_id}'
+            active_keys.add(key)
+            _upsert_alert(
+                conn,
+                alert_key=key,
+                level='warning',
+                text=f'Низкий CTR ({m.ctr*100:.2f}%) по deal {m.deal_id}',
+                source_type='metric',
+                source_id=m.id,
+            )
+        if m.cr_order < 0.05:
+            key = f'cr_low:{m.deal_id}'
+            active_keys.add(key)
+            _upsert_alert(
+                conn,
+                alert_key=key,
+                level='warning',
+                text=f'Низкий CR в заказ ({m.cr_order*100:.2f}%) по deal {m.deal_id}',
+                source_type='metric',
+                source_id=m.id,
+            )
+        if m.revenue > 0 and (m.gross_profit / m.revenue) < 0.1:
+            key = f'margin_low:{m.deal_id}'
+            active_keys.add(key)
+            _upsert_alert(
+                conn,
+                alert_key=key,
+                level='danger',
+                text=f'Низкая маржа (<10%) по deal {m.deal_id}',
+                source_type='metric',
+                source_id=m.id,
+            )
+
+    now = datetime.now(UTC)
+    for d in deals:
+        if d.stage in {DealStage.WON, DealStage.LOST}:
+            continue
+        age_days = (now - d.created_at).days
+        if age_days >= 7:
+            key = f'aging_high:{d.id}'
+            active_keys.add(key)
+            _upsert_alert(
+                conn,
+                alert_key=key,
+                level='danger',
+                text=f'Deal {d.id} застрял на стадии {d.stage.value} уже {age_days} дн.',
+                source_type='deal',
+                source_id=d.id,
+            )
+        elif age_days >= 3:
+            key = f'aging_warn:{d.id}'
+            active_keys.add(key)
+            _upsert_alert(
+                conn,
+                alert_key=key,
+                level='warning',
+                text=f'Deal {d.id} долго в стадии {d.stage.value}: {age_days} дн.',
+                source_type='deal',
+                source_id=d.id,
+            )
+
+    _resolve_stale_alerts(conn, active_keys)
+    conn.commit()
+    rows = conn.execute(
+        "SELECT * FROM alerts WHERE status='open' ORDER BY CASE level WHEN 'danger' THEN 0 ELSE 1 END, last_seen_at DESC"
+    ).fetchall()
+    conn.close()
+
+    return [
+        {
+            'id': r['id'],
+            'alert_key': r['alert_key'],
+            'level': r['level'],
+            'text': r['text'],
+            'status': r['status'],
+            'source_type': r['source_type'],
+            'source_id': r['source_id'],
+            'first_seen_at': r['first_seen_at'],
+            'last_seen_at': r['last_seen_at'],
+            'resolved_at': r['resolved_at'],
+        }
+        for r in rows
+    ]
+
+
+def list_alerts(status: str = 'open', limit: int = 100) -> list[dict[str, object]]:
+    conn = get_conn()
+    rows = conn.execute(
+        'SELECT * FROM alerts WHERE status = ? ORDER BY last_seen_at DESC LIMIT ?',
+        (status, limit),
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            'id': r['id'],
+            'alert_key': r['alert_key'],
+            'level': r['level'],
+            'text': r['text'],
+            'status': r['status'],
+            'source_type': r['source_type'],
+            'source_id': r['source_id'],
+            'first_seen_at': r['first_seen_at'],
+            'last_seen_at': r['last_seen_at'],
+            'resolved_at': r['resolved_at'],
+        }
+        for r in rows
+    ]
+
+
+def ack_alert(alert_id: str) -> bool:
+    conn = get_conn()
+    cur = conn.execute("UPDATE alerts SET status='ack' WHERE id = ? AND status='open'", (alert_id,))
+    conn.commit()
+    changed = cur.rowcount > 0
+    conn.close()
+    return changed
+
+
+def resolve_alert(alert_id: str) -> bool:
+    conn = get_conn()
+    now = datetime.now(UTC).isoformat()
+    cur = conn.execute(
+        "UPDATE alerts SET status='resolved', resolved_at=?, last_seen_at=? WHERE id = ? AND status != 'resolved'",
+        (now, now, alert_id),
+    )
+    conn.commit()
+    changed = cur.rowcount > 0
+    conn.close()
+    return changed

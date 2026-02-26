@@ -214,7 +214,13 @@
     }
     alertsContainer.innerHTML = alerts.map((a) => {
       const cls = a.level === 'danger' ? 'danger' : 'warning';
-      return `<div class="alert alert-${cls} py-2 my-2">${a.text}</div>`;
+      return `<div class="alert alert-${cls} py-2 my-2 d-flex justify-content-between align-items-center gap-2">
+        <span>${a.text}</span>
+        <span class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-dark" onclick="ackAlert('${a.id}')">Ack</button>
+          <button class="btn btn-sm btn-dark" onclick="resolveAlert('${a.id}')">Resolve</button>
+        </span>
+      </div>`;
     }).join('');
   }
 
@@ -228,6 +234,14 @@
         <td><small>${e.payload_json ?? ''}</small></td>
       </tr>
     `).join('');
+  }
+
+  async function ackAlert(alertId) {
+    await fetch(`/api/alerts/${alertId}/ack`, { method: 'POST' });
+  }
+
+  async function resolveAlert(alertId) {
+    await fetch(`/api/alerts/${alertId}/resolve`, { method: 'POST' });
   }
 
   if (window.EventSource) {
