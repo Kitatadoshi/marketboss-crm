@@ -8,6 +8,52 @@
   <style>
     .kanban-col{min-height:180px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px}
     .kanban-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;margin-bottom:8px}
+
+    .chat-fab{
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 1200;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: none;
+      background: #0d6efd;
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
+      font-size: 22px;
+    }
+    .chat-drawer{
+      position: fixed;
+      top: 0;
+      right: 0;
+      height: 100vh;
+      width: 20vw;
+      min-width: 320px;
+      max-width: 65vw;
+      background: #ffffff;
+      border-left: 1px solid #dee2e6;
+      box-shadow: -8px 0 24px rgba(0,0,0,.12);
+      z-index: 1250;
+      transform: translateX(100%);
+      transition: transform .2s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .chat-drawer.open { transform: translateX(0); }
+    .chat-resizer{
+      position: absolute;
+      left: -6px;
+      top: 0;
+      width: 12px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 1300;
+    }
+    .chat-messages{ flex:1; overflow:auto; padding:12px; background:#f8fafc; }
+    .chat-bubble{ border-radius:10px; padding:8px 10px; margin-bottom:8px; max-width:95%; }
+    .chat-user{ background:#0d6efd; color:#fff; margin-left:auto; }
+    .chat-bot{ background:#e9ecef; color:#212529; }
   </style>
 </head>
 <body class="bg-light">
@@ -224,10 +270,35 @@
     </div>
   </div>
 </div>
+
+<button id="chat-fab" class="chat-fab" title="Открыть чат">💬</button>
+
+<aside id="chat-drawer" class="chat-drawer" aria-label="System chat panel">
+  <div id="chat-resizer" class="chat-resizer"></div>
+  <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+    <strong>System Chat</strong>
+    <button id="chat-close" class="btn btn-sm btn-outline-secondary">✕</button>
+  </div>
+  <div id="chat-messages" class="chat-messages">
+    <div class="chat-bubble chat-bot">Привет. Я чат control tower. Спроси KPI, алерты или рекомендации.</div>
+  </div>
+  <form id="chat-form" class="p-2 border-top d-flex gap-2">
+    <input id="chat-input" class="form-control" placeholder="Напиши сообщение..." required />
+    <button class="btn btn-primary">Send</button>
+  </form>
+</aside>
+
 <script>
   const alertsContainer = document.getElementById('alerts-container');
   const eventLogBody = document.getElementById('event-log-body');
   const recommendationsBody = document.getElementById('recommendations-body');
+  const chatFab = document.getElementById('chat-fab');
+  const chatDrawer = document.getElementById('chat-drawer');
+  const chatClose = document.getElementById('chat-close');
+  const chatResizer = document.getElementById('chat-resizer');
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const chatMessages = document.getElementById('chat-messages');
 
   function renderAlerts(alerts) {
     if (!alertsContainer) return;
@@ -291,6 +362,52 @@
 
   async function rejectRecommendation(recoId) {
     await fetch(`/api/recommendations/${recoId}/reject`, { method: 'POST' });
+  }
+
+  function addChatBubble(text, kind) {
+    if (!chatMessages) return;
+    const div = document.createElement('div');
+    div.className = `chat-bubble ${kind === 'user' ? 'chat-user' : 'chat-bot'}`;
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  if (chatFab && chatDrawer && chatClose) {
+    chatFab.addEventListener('click', () => chatDrawer.classList.add('open'));
+    chatClose.addEventListener('click', () => chatDrawer.classList.remove('open'));
+  }
+
+  if (chatForm && chatInput) {
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = chatInput.value.trim();
+      if (!msg) return;
+      addChatBubble(msg, 'user');
+      chatInput.value = '';
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg })
+        });
+        const data = await res.json();
+        addChatBubble(data.reply || 'Ок.', 'bot');
+      } catch (err) {
+        addChatBubble('Ошибка чата. Попробуй ещё раз.', 'bot');
+      }
+    });
+  }
+
+  if (chatDrawer && chatResizer) {
+    let resizing = false;
+    chatResizer.addEventListener('mousedown', () => { resizing = true; });
+    window.addEventListener('mouseup', () => { resizing = false; });
+    window.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      const newWidth = Math.max(320, Math.min(window.innerWidth * 0.65, window.innerWidth - e.clientX));
+      chatDrawer.style.width = `${newWidth}px`;
+    });
   }
 
   if (window.EventSource) {

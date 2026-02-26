@@ -84,6 +84,10 @@ class MetricIn(BaseModel):
     gross_profit: float
 
 
+class ChatIn(BaseModel):
+    message: str = Field(min_length=1)
+
+
 @app.on_event('startup')
 def on_startup() -> None:
     init_db()
@@ -322,6 +326,48 @@ def create_decision_api(payload: DecisionIn) -> dict[str, object]:
 @app.get('/api/recommendations')
 def list_recommendations_api() -> list[dict[str, object]]:
     return [item.model_dump(mode='json') for item in services.list_recommendations()]
+
+
+@app.post('/api/chat')
+def chat_api(payload: ChatIn) -> dict[str, str]:
+    text = payload.message.strip().lower()
+    leads = services.list_leads()
+    deals = services.list_deals()
+    metrics = services.list_metric_snapshots()
+    alerts = services.refresh_alerts()
+    recommendations = services.list_recommendations()
+
+    if any(k in text for k in ['kpi', 'метрик', 'показател', 'summary', 'сводка']):
+        revenue_total = round(sum(m.revenue for m in metrics), 2)
+        gross_total = round(sum(m.gross_profit for m in metrics), 2)
+        reply = (
+            f"Сводка: лидов {len(leads)}, сделок {len(deals)}, снапшотов {len(metrics)}. "
+            f"Выручка {revenue_total}, валовая прибыль {gross_total}."
+        )
+    elif any(k in text for k in ['alert', 'алерт', 'риск', 'проблем']):
+        if alerts:
+            top = alerts[:3]
+            lines = '; '.join(f"[{a['level']}] {a['text']}" for a in top)
+            reply = f"Сейчас активных алертов: {len(alerts)}. Топ: {lines}"
+        else:
+            reply = 'Сейчас активных алертов нет.'
+    elif any(k in text for k in ['recommend', 'рекоменд', 'совет']):
+        proposed = [r for r in recommendations if r.status == 'proposed']
+        if proposed:
+            top = proposed[0]
+            reply = (
+                f"Есть {len(proposed)} рекомендаций. Приоритет: {top.action_type} для deal {top.deal_id} "
+                f"(confidence {round(top.confidence * 100)}%)."
+            )
+        else:
+            reply = 'Новых рекомендаций нет. Могу сгенерировать через POST /api/recommendations.'
+    else:
+        reply = (
+            'Принял. Я могу: дать KPI-сводку, показать алерты, подсказать рекомендации, '
+            'и провести действие через guarded API.'
+        )
+
+    return {'reply': reply}
 
 
 @app.post('/api/recommendations')

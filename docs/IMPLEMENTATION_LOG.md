@@ -128,3 +128,31 @@
 3. `POST /api/agent/actions/move-deal-stage` без approved для medium-risk stage -> blocked.
 4. Повтор с `approved=true` -> executed + stage changed.
 
+
+## 2026-02-26 — UI Chat Drawer (floating button + right panel)
+
+### Implemented
+- Added floating chat button in dashboard (`💬`, bottom-right).
+- Added right-side chat drawer:
+  - default width 20% viewport,
+  - draggable resizer (can expand/contract),
+  - open/close controls.
+- Added lightweight system chat endpoint:
+  - `POST /api/chat` (`message` -> `reply`)
+  - responds with context-aware summaries (KPI/alerts/recommendations).
+- Added chat frontend logic:
+  - message bubbles user/system,
+  - async send to `/api/chat`,
+  - auto-scroll.
+
+### Files
+- `src/interfaces/http/templates/dashboard.html`
+- `src/interfaces/http/app.py`
+
+### Verify
+1. Open dashboard.
+2. Click floating `💬` button.
+3. Drawer appears from right at ~20% width.
+4. Drag left border to resize.
+5. Send message: "дай сводку KPI" or "какие алерты".
+
