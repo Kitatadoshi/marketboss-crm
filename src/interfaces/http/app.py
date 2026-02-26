@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import date
 from pathlib import Path
+from typing import AsyncGenerator
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -86,6 +89,16 @@ def _build_alerts(metrics: list[MetricSnapshot]) -> list[dict[str, str]]:
         if m.revenue > 0 and m.gross_profit / m.revenue < 0.1:
             alerts.append({'level': 'danger', 'text': f'Низкая маржа (<10%) по deal {m.deal_id}'})
     return alerts[:12]
+
+
+def _realtime_snapshot() -> dict[str, object]:
+    events = services.list_event_logs(20)
+    metrics = services.list_metric_snapshots()
+    return {
+        'events': events,
+        'alerts': _build_alerts(metrics),
+        'event_count': len(events),
+    }
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -292,3 +305,29 @@ def create_decision_api(payload: DecisionIn) -> dict[str, object]:
 @app.get('/api/events')
 def list_events_api() -> list[dict[str, object]]:
     return services.list_event_logs(200)
+
+
+@app.get('/api/alerts')
+def list_alerts_api() -> list[dict[str, str]]:
+    return _build_alerts(services.list_metric_snapshots())
+
+
+@app.get('/api/realtime')
+def realtime_snapshot_api() -> dict[str, object]:
+    return _realtime_snapshot()
+
+
+@app.get('/api/events/stream')
+async def stream_events() -> StreamingResponse:
+    async def event_generator() -> AsyncGenerator[str, None]:
+        last_event_id: str | None = None
+        while True:
+            snapshot = _realtime_snapshot()
+            current = snapshot['events'][0]['id'] if snapshot['events'] else None
+            if current != last_event_id:
+                last_event_id = current
+                payload = json.dumps(snapshot, ensure_ascii=False)
+                yield f"event: snapshot\ndata: {payload}\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(event_generator(), media_type='text/event-stream')

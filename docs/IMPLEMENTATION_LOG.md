@@ -38,3 +38,21 @@
 - Existing API/UI kept backward compatible.
 - Current idempotency behavior: duplicate `event_id` ignored.
 
+
+## 2026-02-26 — Step 2 done: Realtime stream (SSE)
+
+### Implemented
+- Added realtime API endpoints in `src/interfaces/http/app.py`:
+  - `GET /api/alerts`
+  - `GET /api/realtime`
+  - `GET /api/events/stream` (Server-Sent Events)
+- Added snapshot generator that streams updates when new event id appears.
+- Upgraded dashboard template (`dashboard.html`):
+  - live alerts container (`#alerts-container`)
+  - live event log body (`#event-log-body`)
+  - browser `EventSource` client that updates UI without reload.
+
+### Notes
+- Transport: SSE (lightweight and enough for v1 realtime).
+- Poll interval in stream loop: 2 sec.
+

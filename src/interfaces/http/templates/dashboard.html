@@ -24,7 +24,7 @@
 
   <div class="card mb-4">
     <div class="card-header">Control Tower Alerts</div>
-    <div class="card-body">
+    <div class="card-body" id="alerts-container">
       {% if alerts %}
         {% for a in alerts %}
           <div class="alert alert-{{ 'danger' if a.level=='danger' else 'warning' }} py-2 my-2">{{ a.text }}</div>
@@ -187,7 +187,7 @@
       <div class="card"><div class="card-header">Event Log (поток действий)</div>
         <div class="table-responsive" style="max-height:280px; overflow:auto;"><table class="table table-sm mb-0">
           <thead><tr><th>Time</th><th>Event</th><th>Aggregate</th><th>Payload</th></tr></thead>
-          <tbody>
+          <tbody id="event-log-body">
             {% for e in events %}
             <tr>
               <td>{{ e.created_at }}</td>
@@ -202,5 +202,42 @@
     </div>
   </div>
 </div>
+<script>
+  const alertsContainer = document.getElementById('alerts-container');
+  const eventLogBody = document.getElementById('event-log-body');
+
+  function renderAlerts(alerts) {
+    if (!alertsContainer) return;
+    if (!alerts || alerts.length === 0) {
+      alertsContainer.innerHTML = '<span class="text-success">Критичных алертов нет.</span>';
+      return;
+    }
+    alertsContainer.innerHTML = alerts.map((a) => {
+      const cls = a.level === 'danger' ? 'danger' : 'warning';
+      return `<div class="alert alert-${cls} py-2 my-2">${a.text}</div>`;
+    }).join('');
+  }
+
+  function renderEvents(events) {
+    if (!eventLogBody) return;
+    eventLogBody.innerHTML = (events || []).map((e) => `
+      <tr>
+        <td>${e.created_at ?? ''}</td>
+        <td><code>${e.event_name ?? ''}</code></td>
+        <td>${e.aggregate_type ?? ''}:<code>${e.aggregate_id ?? ''}</code></td>
+        <td><small>${e.payload_json ?? ''}</small></td>
+      </tr>
+    `).join('');
+  }
+
+  if (window.EventSource) {
+    const stream = new EventSource('/api/events/stream');
+    stream.addEventListener('snapshot', (evt) => {
+      const data = JSON.parse(evt.data);
+      renderAlerts(data.alerts || []);
+      renderEvents(data.events || []);
+    });
+  }
+</script>
 </body>
 </html>
