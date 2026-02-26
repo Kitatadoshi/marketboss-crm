@@ -1,5 +1,7 @@
 # MarketBoss CRM Core
 
+![CI](https://github.com/Kitatadoshi/marketboss-crm/actions/workflows/ci.yml/badge.svg)
+
 CRM-ядро для управления запуском и ростом на маркетплейсах:
 - Clean Architecture + DDD
 - Python-only, strict typing
